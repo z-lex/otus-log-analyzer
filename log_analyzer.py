@@ -32,6 +32,21 @@ config = {
 TEMPLATE_PATH = Path("./template/report.html").resolve()
 ERROR_THRESHOLD = 0.2
 
+logfile_line_pattern = r"^([\S]+)\s+"  # $remote_addr
+logfile_line_pattern += r"([\S]+)\s+"  # $remote_user
+logfile_line_pattern += r"([\S]+)\s+"  # $http_x_real_ip
+logfile_line_pattern += r"\[(.*?)\]\s+"  # $time_local
+logfile_line_pattern += r"\"([A-Z]+\s+(\S+)\s+.*?)\"\s+"  # $request (url inside)
+logfile_line_pattern += r"(\d{3})\s+"  # $status
+logfile_line_pattern += r"(\d+)\s+"  # $body_bytes_sent
+logfile_line_pattern += r"\"(.*?)\"\s+"  # $http_referer
+logfile_line_pattern += r"\"(.*?)\"\s+"  # $http_user_agent
+logfile_line_pattern += r"\"(.*?)\"\s+"  # $http_x_forwarded_for
+logfile_line_pattern += r"\"(.*?)\"\s+"  # $http_X_REQUEST_ID
+logfile_line_pattern += r"\"(.*?)\"\s+"  # $http_X_RB_USER
+logfile_line_pattern += r"(\d+\.?\d*)"  # $request_time
+logfile_line_patter_obj: re.Pattern = re.compile(logfile_line_pattern)
+
 
 class LogfileType(Enum):
     """ Possible logfile types """
@@ -93,16 +108,18 @@ def select_last_logfile(files: t.List[str]) -> t.Optional[LogfileInfo]:
         try:
             cur_date = datetime.date(year=int(m.group(1)), month=int(m.group(2)),
                                      day=int(m.group(3)))
-            if cur_date > result.date:
-                result = LogfileInfo(
-                    path=entry, date=cur_date,
-                    type=LogfileType.PLAIN if len(m.group(4)) == 0 else LogfileType.GZIP)
-
-                # stop searching if today's logfile is found
-                if cur_date == today:
-                    break
         except Exception:
+            logging.exception("can't create date from %s match object", m)
             continue
+
+        if cur_date > result.date:
+            result = LogfileInfo(
+                path=entry, date=cur_date,
+                type=LogfileType.PLAIN if len(m.group(4)) == 0 else LogfileType.GZIP)
+
+            # stop searching if today's logfile is found
+            if cur_date == today:
+                break
 
     if result.path is not None:
         return result
@@ -117,22 +134,7 @@ def parse_logfile_line(line: str) -> LogfileLineInfo:
     :raises ValueError: if ``line`` doesn't match expected logfile line structure and can't be \
     parsed.
     """
-    line_pattern = r"^([\S]+)\s+"  # $remote_addr
-    line_pattern += r"([\S]+)\s+"  # $remote_user
-    line_pattern += r"([\S]+)\s+"  # $http_x_real_ip
-    line_pattern += r"\[(.*?)\]\s+"  # $time_local
-    line_pattern += r"\"([A-Z]+\s+(\S+)\s+.*?)\"\s+"  # $request (url inside)
-    line_pattern += r"(\d{3})\s+"  # $status
-    line_pattern += r"(\d+)\s+"  # $body_bytes_sent
-    line_pattern += r"\"(.*?)\"\s+"  # $http_referer
-    line_pattern += r"\"(.*?)\"\s+"  # $http_user_agent
-    line_pattern += r"\"(.*?)\"\s+"  # $http_x_forwarded_for
-    line_pattern += r"\"(.*?)\"\s+"  # $http_X_REQUEST_ID
-    line_pattern += r"\"(.*?)\"\s+"  # $http_X_RB_USER
-    line_pattern += r"(\d+\.?\d*)"  # $request_time
-    pattern_obj = re.compile(line_pattern)
-
-    m = re.match(pattern_obj, line)
+    m = re.match(logfile_line_patter_obj, line)
     if m is None:
         raise ValueError("wrong line structure")
     info = LogfileLineInfo._make(m.group(*range(1, 15)))
@@ -144,9 +146,16 @@ def parse_logfile_line(line: str) -> LogfileLineInfo:
     return info
 
 
-def parse_logfile(logfile_info: LogfileInfo) -> t.Iterator[t.Optional[LogfileLineInfo]]:
+def parse_logfile(logfile_info: LogfileInfo,
+                  logfile_line_parser: t.Callable[[str], LogfileLineInfo] = parse_logfile_line) \
+        -> t.Iterator[t.Optional[LogfileLineInfo]]:
     """ Generator that parses logfile line by line and yields :class:`LogfileLineInfo` instance
     for each parsed line or None if the current line can't be parsed.
+
+    :param logfile_info: information that is necessary to open and read the logfile.
+    :param logfile_line_parser: callable that converts plain text to the :class:`LogfileLineInfo` \
+    instance.
+    :returns: an iterator over :class:`LogfileLineInfo` objects.
     """
     if not os.path.isfile(logfile_info.path):
         raise ValueError(f"Incorrect logfile path: '{logfile_info.path}'")
@@ -156,14 +165,23 @@ def parse_logfile(logfile_info: LogfileInfo) -> t.Iterator[t.Optional[LogfileLin
         for line_binary in fd:
             line = str(line_binary, encoding="utf-8")
             try:
-                yield parse_logfile_line(line)
+                yield logfile_line_parser(line)
             except ValueError:
                 logging.warning("can't parse line:\n'%s'", line)
                 yield None
 
 
-def get_logfile_stats(logfile_info: LogfileInfo, result_size: int) -> t.List[URLStats]:
-    """ Generate stats from logfile given """
+def get_logfile_stats(
+        logfile_info: LogfileInfo,
+        logfile_parser: t.Callable[[LogfileInfo], t.Iterator[t.Optional[LogfileLineInfo]]],
+        result_size: int) -> t.List[URLStats]:
+    """ Generate stats from logfile given
+
+    :param logfile_info: information that is necessary to open and read the logfile.
+    :param logfile_parser: generator function that yields :class:`LogfileLineInfo` instances.
+    :param result_size: determines how many items will be included in the result.
+    :returns: list of :class:`URLStats` instances.
+    """
 
     stats = dict()
     total_lines = 0
@@ -172,7 +190,7 @@ def get_logfile_stats(logfile_info: LogfileInfo, result_size: int) -> t.List[URL
     req_times = defaultdict(list)
 
     info: LogfileLineInfo
-    for info in parse_logfile(logfile_info):
+    for info in logfile_parser(logfile_info):
         total_lines += 1
         if info is None:
             err_lines += 1
@@ -229,6 +247,17 @@ def render_template(table_json: t.List[t.Dict], report_path: Path) -> None:
         of.write(s)
 
 
+def parse_config(config_text: str) -> t.Dict:
+    """ Make config dict from plain text data.
+
+    :raises JSONDecodeError: if text can't be parsed.
+    """
+    file_config = dict()
+    if len(config_text) > 0:
+        file_config = json.loads(config_text)
+    return file_config
+
+
 def main(config: t.Dict) -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=False, default="./config.json",
@@ -238,10 +267,7 @@ def main(config: t.Dict) -> None:
         args = parser.parse_args()
         config_text = args.config.read()
         args.config.close()
-        if len(config_text) > 0:
-            file_config = json.loads(config_text)
-        else:
-            file_config = dict()
+        file_config = parse_config(config_text)
     except Exception:
         logging.exception("ERROR: can't parse configuration file")
         return
@@ -270,6 +296,7 @@ def main(config: t.Dict) -> None:
 
         table_json = [dict(stats._asdict()) for stats in
                       get_logfile_stats(logfile_info=last_logfile_info,
+                                        logfile_parser=parse_logfile,
                                         result_size=config.get("REPORT_SIZE"))]
 
         new_report_path = report_path.joinpath(

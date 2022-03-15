@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from log_analyzer import (LogfileInfo, LogfileLineInfo, LogfileType, get_last_logfile_info,
-                          get_logfile_stats, parse_logfile_line,
+                          get_logfile_stats, parse_logfile, parse_logfile_line,
                           render_template, report_filename_from_date, select_last_logfile)
 
 
@@ -116,7 +116,8 @@ class CreateReportForFileTest(BaseLogAnalyzerTestCase):
     def test(self):
         table_json = [dict(stats._asdict()) for stats in
                       get_logfile_stats(logfile_info=self.logfile_to_parse,
-                                        result_size=self.config["REPORT_SIZE"])]
+                                        result_size=self.config["REPORT_SIZE"],
+                                        logfile_parser=parse_logfile)]
         render_template(table_json=table_json, report_path=self.new_report_path)
         files_equal = filecmp.cmp(self.new_report_path, self.report_golden, shallow=False)
         self.assertTrue(files_equal, msg="report files are not equal")
