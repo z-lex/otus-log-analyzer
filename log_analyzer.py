@@ -23,11 +23,7 @@ from enum import Enum
 from pathlib import Path
 from statistics import median
 
-config = {
-    "REPORT_SIZE": 1000,
-    "REPORT_DIR": "./reports",
-    "LOG_DIR": "./log"
-}
+config = {"REPORT_SIZE": 1000, "REPORT_DIR": "./reports", "LOG_DIR": "./log"}
 
 TEMPLATE_PATH = Path("./template/report.html").resolve()
 ERROR_THRESHOLD = 0.2
@@ -49,25 +45,50 @@ logfile_line_patter_obj: re.Pattern = re.compile(logfile_line_pattern)
 
 
 class LogfileType(Enum):
-    """ Possible logfile types """
+    """Possible logfile types"""
+
     PLAIN = ""
     GZIP = "gz"
 
 
 #: Namedtuple to store logfile information
-LogfileInfo = namedtuple('LogfileInfo', ['path', 'date', 'type'])
+LogfileInfo = namedtuple("LogfileInfo", ["path", "date", "type"])
 
 #: Namedtuple to store logfile line data
-LogfileLineInfo = namedtuple('LogfileLineInfo', [
-    "remote_addr", "remote_user", "http_x_real_ip", "time_local", "request", "URL", "status",
-    "body_bytes_sent", "http_referer", "http_user_agent", "http_x_forwarded_for",
-    "http_X_REQUEST_ID", "http_X_RB_USER", "request_time",
-])
+LogfileLineInfo = namedtuple(
+    "LogfileLineInfo",
+    [
+        "remote_addr",
+        "remote_user",
+        "http_x_real_ip",
+        "time_local",
+        "request",
+        "URL",
+        "status",
+        "body_bytes_sent",
+        "http_referer",
+        "http_user_agent",
+        "http_x_forwarded_for",
+        "http_X_REQUEST_ID",
+        "http_X_RB_USER",
+        "request_time",
+    ],
+)
 
 #: Namedtuple to store URL statistics
-URLStats = namedtuple("URLStats", [
-    "count", "time_avg", "time_max", "time_sum", "url", "time_med", "time_perc", "count_perc",
-])
+URLStats = namedtuple(
+    "URLStats",
+    [
+        "count",
+        "time_avg",
+        "time_max",
+        "time_sum",
+        "url",
+        "time_med",
+        "time_perc",
+        "count_perc",
+    ],
+)
 
 
 def get_last_logfile_info(log_dir: t.Union[str, Path]) -> t.Optional[LogfileInfo]:
@@ -78,8 +99,10 @@ def get_last_logfile_info(log_dir: t.Union[str, Path]) -> t.Optional[LogfileInfo
     """
     log_path = Path(log_dir).resolve()
     if not log_path.is_dir():
-        err_msg = f"get_last_logfile_info: incorrect logfile directory parameter: '{log_dir}'. " \
-                  f"Check if this directory exists. "
+        err_msg = (
+            f"get_last_logfile_info: incorrect logfile directory parameter: '{log_dir}'. "
+            f"Check if this directory exists. "
+        )
         logging.error(err_msg)
         raise ValueError(err_msg)
 
@@ -106,16 +129,19 @@ def select_last_logfile(files: t.List[str]) -> t.Optional[LogfileInfo]:
             continue
 
         try:
-            cur_date = datetime.date(year=int(m.group(1)), month=int(m.group(2)),
-                                     day=int(m.group(3)))
+            cur_date = datetime.date(
+                year=int(m.group(1)), month=int(m.group(2)), day=int(m.group(3))
+            )
         except Exception:
             logging.exception("can't create date from %s match object", m)
             continue
 
         if cur_date > result.date:
             result = LogfileInfo(
-                path=entry, date=cur_date,
-                type=LogfileType.PLAIN if len(m.group(4)) == 0 else LogfileType.GZIP)
+                path=entry,
+                date=cur_date,
+                type=LogfileType.PLAIN if len(m.group(4)) == 0 else LogfileType.GZIP,
+            )
 
             # stop searching if today's logfile is found
             if cur_date == today:
@@ -146,9 +172,10 @@ def parse_logfile_line(line: str) -> LogfileLineInfo:
     return info
 
 
-def parse_logfile(logfile_info: LogfileInfo,
-                  logfile_line_parser: t.Callable[[str], LogfileLineInfo] = parse_logfile_line) \
-        -> t.Iterator[t.Optional[LogfileLineInfo]]:
+def parse_logfile(
+    logfile_info: LogfileInfo,
+    logfile_line_parser: t.Callable[[str], LogfileLineInfo] = parse_logfile_line,
+) -> t.Iterator[t.Optional[LogfileLineInfo]]:
     """ Generator that parses logfile line by line and yields :class:`LogfileLineInfo` instance
     for each parsed line or None if the current line can't be parsed.
 
@@ -160,8 +187,9 @@ def parse_logfile(logfile_info: LogfileInfo,
     if not os.path.isfile(logfile_info.path):
         raise ValueError(f"Incorrect logfile path: '{logfile_info.path}'")
 
-    with open(logfile_info.path, "rb") if logfile_info.type is LogfileType.PLAIN \
-            else gzip.open(logfile_info.path, "r") as fd:
+    with open(logfile_info.path, "rb") if logfile_info.type is LogfileType.PLAIN else gzip.open(
+        logfile_info.path, "r"
+    ) as fd:
         for line_binary in fd:
             line = str(line_binary, encoding="utf-8")
             try:
@@ -172,10 +200,11 @@ def parse_logfile(logfile_info: LogfileInfo,
 
 
 def get_logfile_stats(
-        logfile_info: LogfileInfo,
-        logfile_parser: t.Callable[[LogfileInfo], t.Iterator[t.Optional[LogfileLineInfo]]],
-        result_size: int) -> t.List[URLStats]:
-    """ Generate stats from logfile given
+    logfile_info: LogfileInfo,
+    logfile_parser: t.Callable[[LogfileInfo], t.Iterator[t.Optional[LogfileLineInfo]]],
+    result_size: int,
+) -> t.List[URLStats]:
+    """Generate stats from logfile given
 
     :param logfile_info: information that is necessary to open and read the logfile.
     :param logfile_parser: generator function that yields :class:`LogfileLineInfo` instances.
@@ -197,8 +226,14 @@ def get_logfile_stats(
             continue
         if stats.get(info.URL) is None:
             stats[info.URL] = URLStats(
-                count=1, time_avg=0.0, time_max=info.request_time, time_sum=info.request_time,
-                url=info.URL, time_med=0.0, time_perc=0.0, count_perc=0.0,
+                count=1,
+                time_avg=0.0,
+                time_max=info.request_time,
+                time_sum=info.request_time,
+                url=info.URL,
+                time_med=0.0,
+                time_perc=0.0,
+                count_perc=0.0,
             )
         else:
             stats[info.URL] = stats[info.URL]._replace(
@@ -212,29 +247,33 @@ def get_logfile_stats(
 
     err_perc = err_lines / total_lines
     if err_perc > ERROR_THRESHOLD:
-        logging.error("error threshold = %.2f exceeded, current error rate is %.2f",
-                      ERROR_THRESHOLD, err_perc)
+        logging.error(
+            "error threshold = %.2f exceeded, current error rate is %.2f",
+            ERROR_THRESHOLD,
+            err_perc,
+        )
         raise RuntimeError("Parsing error threshold exceeded")
 
-    result: t.List[URLStats] = \
-        sorted(list(stats.values()), key=lambda x: x.time_sum, reverse=True)[:result_size]
+    result: t.List[URLStats] = sorted(
+        list(stats.values()), key=lambda x: x.time_sum, reverse=True
+    )[:result_size]
     for idx, elem in enumerate(result):
         result[idx] = elem._replace(
             count_perc=f"{t.cast(int, elem.count) / (total_lines - err_lines) * 100.0:.2f}",
             time_perc=f"{elem.time_sum / summary_time * 100.0:.2f}",
             time_avg=f"{elem.time_sum / elem.count:.3f}",
-            time_med=f"{float(median(req_times[elem.url])):.3f}"
+            time_med=f"{float(median(req_times[elem.url])):.3f}",
         )
 
     return result
 
 
 def report_filename_from_date(date: datetime.date) -> str:
-    return "report-{}.html".format(date.strftime('%Y.%m.%d'))
+    return "report-{}.html".format(date.strftime("%Y.%m.%d"))
 
 
 def report_already_exists(report_path: Path, date: datetime.date) -> bool:
-    """ Check if report is already created for this date """
+    """Check if report is already created for this date"""
     if not report_path.is_dir():
         raise ValueError(f"Incorrect report dir: '{report_path}'")
     return report_path.joinpath(report_filename_from_date(date)).is_file()
@@ -248,7 +287,7 @@ def render_template(table_json: t.List[t.Dict], report_path: Path) -> None:
 
 
 def parse_config(config_text: str) -> t.Dict:
-    """ Make config dict from plain text data.
+    """Make config dict from plain text data.
 
     :raises JSONDecodeError: if text can't be parsed.
     """
@@ -260,8 +299,14 @@ def parse_config(config_text: str) -> t.Dict:
 
 def main(config: t.Dict) -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", required=False, default="./config.json",
-                        type=open, nargs=1, help="path to configuration file")
+    parser.add_argument(
+        "--config",
+        required=False,
+        default="./config.json",
+        type=open,
+        nargs=1,
+        help="path to configuration file",
+    )
 
     try:
         args = parser.parse_args()
@@ -275,8 +320,12 @@ def main(config: t.Dict) -> None:
     config.update(**file_config)
 
     logging_filename = config.get("LOGGING_FILENAME")
-    logging.basicConfig(format="[%(asctime)s] %(levelname).1s %(message)s",
-                        datefmt="%Y.%m.%d %H:%M:%S", filename=logging_filename, level="INFO")
+    logging.basicConfig(
+        format="[%(asctime)s] %(levelname).1s %(message)s",
+        datefmt="%Y.%m.%d %H:%M:%S",
+        filename=logging_filename,
+        level="INFO",
+    )
 
     report_path = Path(config.get("REPORT_DIR"))
 
@@ -284,23 +333,32 @@ def main(config: t.Dict) -> None:
         last_logfile_info = get_last_logfile_info(log_dir=config.get("LOG_DIR"))
 
         if last_logfile_info is None:
-            logging.info("No logfiles found in '%s'. Exiting...", config.get('LOG_DIR'))
+            logging.info("No logfiles found in '%s'. Exiting...", config.get("LOG_DIR"))
             return
 
         logging.info("last logfile found: %s", last_logfile_info.path)
 
         if report_already_exists(report_path=report_path, date=last_logfile_info.date):
-            logging.info("Report for '%s' has already created in '%s', there's nothing to do. "
-                         "Exiting...", last_logfile_info.path, report_path)
+            logging.info(
+                "Report for '%s' has already created in '%s', there's nothing to do. "
+                "Exiting...",
+                last_logfile_info.path,
+                report_path,
+            )
             return
 
-        table_json = [dict(stats._asdict()) for stats in
-                      get_logfile_stats(logfile_info=last_logfile_info,
-                                        logfile_parser=parse_logfile,
-                                        result_size=config.get("REPORT_SIZE"))]
+        table_json = [
+            dict(stats._asdict())
+            for stats in get_logfile_stats(
+                logfile_info=last_logfile_info,
+                logfile_parser=parse_logfile,
+                result_size=config.get("REPORT_SIZE"),
+            )
+        ]
 
         new_report_path = report_path.joinpath(
-            report_filename_from_date(date=last_logfile_info.date))
+            report_filename_from_date(date=last_logfile_info.date)
+        )
         render_template(table_json=table_json, report_path=new_report_path)
     except Exception:
         logging.exception("Can't finish task")
